@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-serif: var(--font-domine), Georgia, serif;
+  --font-sans: var(--font-jakarta), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #FFFFFF;
+    color: #0B0B0D;
+  }
+}
