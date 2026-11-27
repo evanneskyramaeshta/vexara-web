@@ -14,22 +14,17 @@ import {
   Check,
 } from "lucide-react";
 
-const categories = [
-  "Semua",
-  "Hukum & Politik",
-  "Sejarah & Peradaban",
-  "Sastra & Puisi",
-  "Biografi Tokoh",
-  "Filsafat Sosial",
-] as const;
+type ExtendedBookItem = BookItem & {
+  coverUrl?: string | null;
+};
 
 export default function PerpustakaanPage() {
-  const [booksData, setBooksData] = useState<BookItem[]>(vexaraBooks);
+  const [booksData, setBooksData] = useState<ExtendedBookItem[]>(vexaraBooks);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("Semua");
   const [selectedStatus, setSelectedStatus] = useState<string>("Semua Status");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [activeBook, setActiveBook] = useState<BookItem | null>(null);
+  const [activeBook, setActiveBook] = useState<ExtendedBookItem | null>(null);
   const [copiedQuote, setCopiedQuote] = useState(false);
 
   useEffect(() => {
@@ -37,26 +32,98 @@ export default function PerpustakaanPage() {
       try {
         const res = await fetch("/api/books", { cache: "no-store" });
         const result = await res.json();
-        if (result.success && Array.isArray(result.data)) {
-          const dbBooks: BookItem[] = result.data.map((item: BookItem & { id: number }) => ({
-            ...item,
-            id: `db-${item.id}`,
-          }));
+
+        if (!result.success) {
+          console.error("Gagal memuat /api/books:", result.error || result);
+          return;
+        }
+
+        if (Array.isArray(result.data) && result.data.length > 0) {
+          const dbBooks: ExtendedBookItem[] = result.data.map(
+            (item: Record<string, unknown>) => {
+              const rawCover = (item.coverImage ??
+                item.cover_image ??
+                item.coverUrl ??
+                item.cover_url) as string | null | undefined;
+
+              const resolvedCover = rawCover
+                ? rawCover.startsWith("http") || rawCover.startsWith("/")
+                  ? rawCover
+                  : `/uploads/books/${rawCover}`
+                : null;
+
+              const rawStatus = String(item.status || "");
+              const normalizedStatus =
+                rawStatus === "Arsip Fisik" || rawStatus === "physical"
+                  ? "Arsip Fisik"
+                  : "Ringkasan Digital";
+
+              const title = String(item.title || "Tanpa Judul");
+              const synopsis = String(
+                item.synopsis ??
+                  item.description ??
+                  "Arsip koleksi literasi Vexara."
+              );
+
+              return {
+                id: `db-${item.id}`,
+                title,
+                author: String(item.author ?? item.author_name ?? "Anonim"),
+                publisher: String(
+                  item.publisher ?? item.publisher_name ?? "Arsip Vexara"
+                ),
+                year: Number(
+                  item.year ??
+                    item.publicationYear ??
+                    item.publication_year ??
+                    2024
+                ),
+                pages: Number(
+                  item.pages ?? item.totalPages ?? item.total_pages ?? 0
+                ),
+                isbn: String(item.isbn || "-"),
+                category: String(item.category || "Umum"),
+                status: normalizedStatus,
+                synopsis,
+                curatorNote: String(
+                  item.curatorNote ??
+                    item.curator_note ??
+                    `Koleksi terarsip dalam katalog literasi Vexara (${String(
+                      item.bookCode ?? item.book_code ?? "VXR"
+                    )}).`
+                ),
+                quote: String(
+                  item.quote ??
+                    synopsis.slice(0, 180) + (synopsis.length > 180 ? "..." : "")
+                ),
+                coverUrl: resolvedCover,
+              };
+            }
+          );
+
           setBooksData([...dbBooks, ...vexaraBooks]);
         }
-      } catch {
-        // Tetap gunakan koleksi dasar jika koneksi database sedang offline
+      } catch (err) {
+        console.error("Koneksi ke /api/books gagal:", err);
       }
     }
     loadLiveBooks();
   }, []);
 
+  const dynamicCategories = useMemo(() => {
+    const uniqueCats = Array.from(
+      new Set(booksData.map((b) => b.category).filter(Boolean))
+    );
+    return ["Semua", ...uniqueCats];
+  }, [booksData]);
+
   const filteredBooks = useMemo(() => {
     return booksData.filter((book) => {
+      const q = searchQuery.toLowerCase();
       const matchesSearch =
-        book.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        book.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        book.category.toLowerCase().includes(searchQuery.toLowerCase());
+        book.title.toLowerCase().includes(q) ||
+        book.author.toLowerCase().includes(q) ||
+        book.category.toLowerCase().includes(q);
 
       const matchesCategory =
         selectedCategory === "Semua" || book.category === selectedCategory;
@@ -69,7 +136,9 @@ export default function PerpustakaanPage() {
   }, [booksData, searchQuery, selectedCategory, selectedStatus]);
 
   const handleCopyQuote = (quote: string, title: string, author: string) => {
-    navigator.clipboard.writeText(`"${quote}" — ${author} (${title}, Arsip Vexara)`);
+    navigator.clipboard.writeText(
+      `"${quote}" — ${author} (${title}, Arsip Vexara)`
+    );
     setCopiedQuote(true);
     setTimeout(() => setCopiedQuote(false), 2000);
   };
@@ -94,8 +163,9 @@ export default function PerpustakaanPage() {
             Perpustakaan Vexara
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#4B5563] sm:text-base">
-            Katalog kuratorial buku hukum, sejarah, sastra, biografi, dan filsafat sosial
-            yang menjadi rujukan diskusi serta ruang baca publik Vexara.
+            Katalog kuratorial buku hukum, sejarah, sastra, biografi, dan
+            filsafat sosial yang menjadi rujukan diskusi serta ruang baca publik
+            Vexara.
           </p>
 
           <div className="relative mt-8 max-w-2xl">
@@ -113,7 +183,7 @@ export default function PerpustakaanPage() {
         {/* Filter & View Controls */}
         <div className="mt-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div className="flex flex-wrap items-center gap-2">
-            {categories.map((cat) => {
+            {dynamicCategories.map((cat) => {
               const active = selectedCategory === cat;
               return (
                 <button
@@ -191,8 +261,19 @@ export default function PerpustakaanPage() {
                 onClick={() => setActiveBook(book)}
                 className="group cursor-pointer rounded-sm border border-[#E5E7EB] bg-[#FFFFFF] p-5 transition hover:border-[#0B0B0D]"
               >
-                <div className="relative flex aspect-[4/3] flex-col justify-between rounded-sm bg-[#F1F3F5] p-5 transition group-hover:bg-[#E5E7EB]/70">
-                  <div className="flex items-center justify-between">
+                <div className="relative flex aspect-[4/3] flex-col justify-between overflow-hidden rounded-sm bg-[#F1F3F5] p-5 transition group-hover:bg-[#E5E7EB]/70">
+                  {book.coverUrl && (
+                    <img
+                      src={book.coverUrl}
+                      alt={book.title}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                      className="absolute inset-0 h-full w-full object-cover opacity-20 grayscale transition group-hover:opacity-30"
+                    />
+                  )}
+
+                  <div className="relative z-10 flex items-center justify-between">
                     <span className="font-mono text-[10px] tracking-wider text-[#4B5563] uppercase">
                       {book.category}
                     </span>
@@ -203,12 +284,14 @@ export default function PerpustakaanPage() {
                           : "border border-[#9CA3AF] bg-[#FFFFFF] text-[#0B0B0D]"
                       }`}
                     >
-                      {book.status === "Ringkasan Digital" ? "DIGITAL" : "ARSIP FISIK"}
+                      {book.status === "Ringkasan Digital"
+                        ? "DIGITAL"
+                        : "ARSIP FISIK"}
                     </span>
                   </div>
 
-                  <div className="my-auto border-l-2 border-[#0B0B0D] pl-3">
-                    <p className="font-serif text-lg leading-snug font-bold text-[#0B0B0D]">
+                  <div className="relative z-10 my-auto border-l-2 border-[#0B0B0D] pl-3">
+                    <p className="line-clamp-2 font-serif text-lg leading-snug font-bold text-[#0B0B0D]">
                       {book.title}
                     </p>
                     <p className="mt-1 font-mono text-[11px] text-[#4B5563]">
@@ -218,7 +301,9 @@ export default function PerpustakaanPage() {
                 </div>
 
                 <div className="mt-4">
-                  <p className="text-xs font-medium text-[#4B5563]">{book.author}</p>
+                  <p className="text-xs font-medium text-[#4B5563]">
+                    {book.author}
+                  </p>
                   <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-[#4B5563]">
                     {book.synopsis}
                   </p>
@@ -255,7 +340,9 @@ export default function PerpustakaanPage() {
                   <p className="text-sm text-[#4B5563]">{book.author}</p>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="font-mono text-xs text-[#6B7280]">{book.status}</span>
+                  <span className="font-mono text-xs text-[#6B7280]">
+                    {book.status}
+                  </span>
                   <span className="rounded-sm border border-[#E5E7EB] bg-[#FFFFFF] px-3 py-1.5 text-xs font-medium text-[#0B0B0D]">
                     Buka Catatan
                   </span>
@@ -332,7 +419,11 @@ export default function PerpustakaanPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      handleCopyQuote(activeBook.quote, activeBook.title, activeBook.author)
+                      handleCopyQuote(
+                        activeBook.quote,
+                        activeBook.title,
+                        activeBook.author
+                      )
                     }
                     className="inline-flex items-center gap-1.5 rounded-sm border border-[#374151] bg-[#131317] px-3 py-1.5 text-xs font-medium text-[#E5E7EB] transition hover:border-[#E5E7EB]"
                   >
