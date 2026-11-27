@@ -16,8 +16,9 @@ const client =
   globalForDb.conn ??
   postgres(connectionString, {
     prepare: false,
-    ssl: "require",
+    ssl: { rejectUnauthorized: false },
   });
+  
 if (process.env.NODE_ENV !== "production") {
   globalForDb.conn = client;
 }
